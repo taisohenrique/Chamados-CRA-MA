@@ -9,14 +9,30 @@ st.set_page_config(page_title="TI CRA-MA | Chamados", layout="wide", page_icon="
 # Conexão
 conn = st.connection("supabase", type=SupabaseConnection)
 
-# --- FUNÇÃO DO ALERTA SONORO ---
-def alerta_sonoro():
-    # Link de um som de notificação (você pode trocar por qualquer link .mp3)
+# --- FUNÇÃO DO ALERTA SONORO (3 BIPS DE 1s) ---
+def alerta_sonoro_3_bips():
+    # Som de bip curto
     sound_url = "https://www.soundjay.com/buttons/sounds/button-3.mp3"
+    
     html_string = f"""
-        <audio autoplay>
+        <audio id="beepAudio">
           <source src="{sound_url}" type="audio/mp3">
         </audio>
+        <script>
+            var audio = document.getElementById("beepAudio");
+            var count = 0;
+            function playBeep() {{
+                if (count < 3) {{
+                    audio.play().catch(function(error) {{
+                        console.log("Aguardando interação do usuário para tocar som.");
+                    }});
+                    count++;
+                    // Espera 1.5 segundos para o próximo bip (1s de som + 0.5s de silêncio)
+                    setTimeout(playBeep, 1500);
+                }}
+            }}
+            playBeep();
+        </script>
     """
     st.components.v1.html(html_string, height=0)
 
@@ -55,33 +71,36 @@ with tab2:
     if res.data:
         df = pd.DataFrame(res.data)
         
-        # Lógica do Alerta: Se houver um chamado "Aberto" criado nos últimos 10 segundos
-        chamados_novos = df[df['status'] == "Aberto"]
+        # Filtra apenas os que estão abertos
+        chamados_abertos = df[df['status'] == "Aberto"]
         
-        if not chamados_novos.empty:
-            st.warning(f"Existem {len(chamados_novos)} chamados aguardando atendimento!")
-            # Toca o som se houver algo aberto (você pode refinar essa lógica)
-            alerta_sonoro()
+        if not chamados_abertos.empty:
+            st.error(f"🚨 ATENÇÃO: {len(chamados_abertos)} CHAMADO(S) AGUARDANDO!")
+            # DISPARA OS 3 BIPS
+            alerta_sonoro_3_bips()
+        else:
+            st.success("✅ Nenhum chamado pendente no momento.")
 
-        # Exibir Tabela
+        # Exibir Tabela (Removemos a coluna interna 'id' da visualização se quiser, mas deixamos para consulta)
         st.dataframe(df, use_container_width=True)
         
         # Ações de Gerenciamento
         st.divider()
+        st.subheader("Atualizar Chamado")
         col_id, col_status = st.columns(2)
         with col_id:
-            id_update = st.number_input("ID do Chamado para atualizar", step=1, min_value=0)
+            id_update = st.number_input("Digite o ID do Chamado", step=1, min_value=0)
         with col_status:
             novo_status = st.selectbox("Mudar para:", ["Em Atendimento", "Concluído", "Cancelado"])
         
-        if st.button("Atualizar Status"):
+        if st.button("Salvar Alteração"):
             conn.table("chamados").update({"status": novo_status}).eq("id", id_update).execute()
-            st.success(f"Chamado {id_update} atualizado!")
+            st.toast(f"Chamado {id_update} atualizado!")
+            time.sleep(1)
             st.rerun()
     else:
         st.info("Nenhum chamado no momento.")
 
-# --- AUTO REFRESH (Para o alerta funcionar sozinho) ---
-# Isso faz a página atualizar a cada 30 segundos para checar novos chamados
+# --- AUTO REFRESH (30 segundos) ---
 from streamlit_autorefresh import st_autorefresh
 st_autorefresh(interval=30 * 1000, key="datarefresh")
